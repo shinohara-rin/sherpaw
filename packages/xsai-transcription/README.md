@@ -79,6 +79,8 @@ Use `asRemoteUrl(...)` when model assets should be fetched on the main thread be
 
 These are routed with `@moeru/eventa` internally.
 
+The speech transport also exposes `events`, the raw runtime events. A `transcription.partial` event carries `index`, `text`, and `tokens`. Each token has its text, its time in seconds from the first pushed sample, and its log probability when the model reports one. A model without timestamps, such as Paraformer, gives no tokens.
+
 ## Low-level APIs
 
 You can still use lower-level primitives directly:

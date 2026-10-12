@@ -7,6 +7,31 @@ export interface TimedToken {
    * after its speech. With X-ASR, the delay was 0.05-0.5 s. Other models can have a different delay.
    */
   time: number
+  /** The natural log of the token's probability (sherpa-onnx `ys_probs`). Absent when the model does not report it. */
+  logProbability?: number
+}
+
+/** The fields of a sherpa-onnx online result that describe its tokens (`OnlineRecognizerResult::AsJsonString`). */
+export interface TokenResult {
+  tokens?: string[]
+  timestamps?: number[]
+  ys_probs?: number[]
+  start_time?: number
+}
+
+/**
+ * The tokens of one online result, with times from the first sample of the stream. The result times
+ * count from `start_time`, where the segment after the last endpoint starts. A result without
+ * timestamps, for example from Paraformer, gives no tokens.
+ */
+export function timedTokens(result: TokenResult): TimedToken[] {
+  const { tokens = [], timestamps = [], ys_probs: logProbabilities = [], start_time: start = 0 } = result
+  if (timestamps.length !== tokens.length)
+    return []
+  const scored = logProbabilities.length === tokens.length
+  return tokens.map((text, i) => scored
+    ? { text, time: start + timestamps[i]!, logProbability: logProbabilities[i]! }
+    : { text, time: start + timestamps[i]! })
 }
 
 /** True for the code points that sherpa-onnx treats as CJK (`IsCJK` in text-utils.cc). */

@@ -1,3 +1,5 @@
+import type { TimedToken } from '@sherpaw/asr'
+
 export interface TranscriptionStartedEvent {
   type: 'transcription.started'
 }
@@ -6,6 +8,11 @@ export interface PartialEvent {
   type: 'transcription.partial'
   index: number
   text: string
+  /**
+   * The tokens of `text`, with times from the first pushed sample. Empty when the model reports no
+   * timestamps, for example Paraformer.
+   */
+  tokens?: TimedToken[]
 }
 
 export interface CompletedEvent {

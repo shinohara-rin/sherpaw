@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { isPunctuationToken, joinTokens } from './tokens'
+import { isPunctuationToken, joinTokens, timedTokens } from './tokens'
 
 it('joins tokens as sherpa-onnx builds its text', () => {
   expect(joinTokens([' 这', ' 是', ' 测', ' 试', ' ，'])).toBe('这是测试，')
@@ -14,4 +14,12 @@ it('joins tokens as sherpa-onnx builds its text', () => {
 it('finds tokens that hold only punctuation', () => {
   expect([' ，', '。', ' ?', ' ...', '？！'].every(isPunctuationToken)).toBe(true)
   expect([' 这', ' hel', 'lo', ' ', '', ' 3'].some(isPunctuationToken)).toBe(false)
+})
+
+it('puts the tokens of a result on the stream clock with their log probabilities', () => {
+  expect(timedTokens({ tokens: [' hel', 'lo'], timestamps: [0.2, 0.32], ys_probs: [-0.1, -2.5], start_time: 3 }))
+    .toStrictEqual([{ text: ' hel', time: 3.2, logProbability: -0.1 }, { text: 'lo', time: 3.32, logProbability: -2.5 }])
+  expect(timedTokens({ tokens: [' hel'], timestamps: [0.2] })).toStrictEqual([{ text: ' hel', time: 0.2 }])
+  // Paraformer reports tokens without timestamps.
+  expect(timedTokens({ tokens: [' 你', ' 好'] })).toEqual([])
 })
