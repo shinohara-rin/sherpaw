@@ -170,6 +170,7 @@ models/
 !packages/testing-audio/cases/speaker-identification/fixtures/*.wav
 
 packages/*/tests/model/**/*
+packages/*/tests/model-transducer/**/*
 packages/*/tests/fixtures/**/*
 **/tests/**/*.png
 **/.vitest-attachments/

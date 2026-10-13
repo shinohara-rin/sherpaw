@@ -95,6 +95,34 @@ async function processCopies(recognizer: OnlineRecognizer, streams: OnlineStream
 
 A batch gives the same result as one stream alone only when the model does not quantize activations per batch. INT8 models that use `DynamicQuantizeLinear` compute one scale for the whole batch, so each stream's result depends on the other streams. FP32 models give the same result.
 
+### Measure recognizer uncertainty with rollouts
+
+A rollout decodes the same encoder output as its stream, with Gaussian noise added. Where the rollouts disagree with the stream, the recognizer is unsure. The encoder runs once for the stream and all its rollouts, so each rollout costs only a decoder and joiner pass. Rollouts need a transducer recognizer.
+
+```ts
+import type { OnlineRecognizer } from '@sherpaw/asr'
+
+function transcribeWithRollouts(recognizer: OnlineRecognizer, samples: Float32Array) {
+  const stream = recognizer.createStream()
+  // Attach before the first decode. sigma scales the noise by the encoder output's standard deviation.
+  recognizer.attachRollouts(stream, { count: 12, sigma: 1, seed: 1 })
+  stream.acceptWaveform(16000, samples)
+  stream.inputFinished()
+  while (recognizer.isReady(stream))
+    recognizer.decode(stream)
+
+  const result = recognizer.getResult(stream)
+  // One result per rollout, with tokens and timestamps on the stream's clock.
+  const rollouts = recognizer.getRolloutResults(stream)
+  stream.free() // Also frees the rollouts.
+  return { result, rollouts }
+}
+```
+
+`reset` also resets the rollouts, so they follow endpoints. The same seed and input repeat the same rollouts. A sigma of about 1 works for X-ASR. At 2 or more, the noise breaks confident tokens too. Measured in WASM on one core, 12 rollouts add about a third to the decode time of a clip, and 48 rollouts about double it. An input-noise Monte Carlo probe with 12 copies costs 12 decodes.
+
+The rollouts of one stream run as one batch. INT8 joiners that use `DynamicQuantizeLinear` share one scale across the batch, as described above.
+
 ## License
 
 ```

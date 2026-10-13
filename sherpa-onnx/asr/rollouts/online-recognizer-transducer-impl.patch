@@ -1,0 +1,27 @@
+--- online-recognizer-transducer-impl.h
++++ online-recognizer-transducer-impl.h
+@@ -29,6 +29,7 @@
+ #include "sherpa-onnx/csrc/text-utils.h"
+ #include "sherpa-onnx/csrc/utils.h"
+ #include "ssentencepiece/csrc/ssentencepiece.h"
++#include "sherpaw-rollouts.h"
+ 
+ namespace sherpa_onnx {
+ 
+@@ -342,6 +343,7 @@
+ 
+     auto pair = model_->RunEncoder(std::move(x), std::move(states),
+                                    std::move(processed_frames));
++    SherpawAdvanceRollouts(decoder_.get(), chunk_shift, ss, n, pair.first);
+ 
+     if (has_context_graph) {
+       decoder_->Decode(std::move(pair.first), ss, &results);
+@@ -437,6 +439,8 @@
+     // Note: We only update counters. The underlying audio samples
+     // are not discarded.
+     s->Reset();
++
++    for (auto *rollout : SherpawRolloutStreams(s)) Reset(rollout);
+   }
+ 
+  private:

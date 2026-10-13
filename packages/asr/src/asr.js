@@ -2027,6 +2027,8 @@ class OnlineStream {
 
   free() {
     if (this.handle) {
+      // Builds without rollouts do not export the function.
+      this.Module._SherpawDetachRollouts?.(this.handle)
       this.Module._SherpaOnnxDestroyOnlineStream(this.handle)
       this.handle = null
       this.Module._free(this.pointer)
@@ -2164,6 +2166,30 @@ class OnlineRecognizer {
     this.Module._SherpaOnnxDestroyOnlineStreamResultJson(r)
 
     return ans
+  }
+
+  // Each decode of the stream also decodes its rollouts, from the same encoder output plus noise.
+  attachRollouts(stream, { count, sigma = 1, seed = 0 }) {
+    if (this.config.type !== OnlineRecognizerTypes.Transducer)
+      throw new Error('Rollouts need a transducer recognizer.')
+    if (!this.Module._SherpawAttachRollouts)
+      throw new Error('This ASR build has no rollouts.')
+    if (this.Module._SherpawAttachRollouts(this.handle, stream.handle, count, sigma, seed >>> 0) !== 0)
+      throw new Error('Rollouts need a positive count and a positive sigma.')
+  }
+
+  detachRollouts(stream) {
+    this.Module._SherpawDetachRollouts?.(stream.handle)
+  }
+
+  getRolloutResults(stream) {
+    const count = this.Module._SherpawRolloutCount?.(stream.handle) ?? 0
+    return Array.from({ length: count }, (_, index) => {
+      const r = this.Module._SherpawGetRolloutResultAsJson(stream.handle, index)
+      const ans = JSON.parse(this.Module.UTF8ToString(r))
+      this.Module._SherpaOnnxDestroyOnlineStreamResultJson(r)
+      return ans
+    })
   }
 }
 

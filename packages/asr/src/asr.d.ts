@@ -272,8 +272,30 @@ export class OnlineRecognizer {
    */
   decodeStreams(streams: readonly OnlineStream[]): void
   isEndpoint(stream: OnlineStream): boolean
+  /** Resets the stream and its rollouts. */
   reset(stream: OnlineStream): void
   getResult(stream: OnlineStream): any
+  /**
+   * Attaches encoder-output noise rollouts to a transducer stream before its first decode.
+   * Each decode of the stream also decodes every rollout from the same encoder output, with
+   * Gaussian noise of `sigma` times the standard deviation of that output added. The encoder
+   * runs once, so a rollout costs one decoder and joiner pass. Replaces earlier rollouts.
+   * Freeing the stream frees its rollouts.
+   */
+  attachRollouts(stream: OnlineStream, options: RolloutOptions): void
+  /** Frees the rollouts of a stream. The stream keeps decoding. */
+  detachRollouts(stream: OnlineStream): void
+  /** One result per rollout, in the shape of `getResult`. Empty without rollouts. */
+  getRolloutResults(stream: OnlineStream): any[]
+}
+
+export interface RolloutOptions {
+  /** Number of rollouts. At least 1. */
+  count: number
+  /** Noise level as a multiple of the encoder output's standard deviation. Defaults to 1. */
+  sigma?: number
+  /** Seeds the noise, so the same input and seed repeat the same rollouts. Defaults to 0. */
+  seed?: number
 }
 
 export interface InitResult {
