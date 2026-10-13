@@ -54,17 +54,27 @@ export async function createWebGpuBackend(bridge: WebGpuModule, weights: WebGpuW
     if (info.isFallbackAdapter)
       throw new Error('ONNX Runtime selected a software GPU adapter')
     installAsrRunner(bridge, sessions)
+    /** Triggering workflow: streaming drain -> Asyncify C API -> runAsr -> native decoding resumes. */
+    async function runDecode(name: string, args: number[]) {
+      bridge.asrError = undefined
+      bridge._SherpawSetWebGpuEnabled(1)
+      try {
+        await bridge.ccall(name, null, args.map(() => 'number'), args, { async: true })
+        if (bridge.asrError)
+          throw new Error(bridge.asrError)
+      }
+      finally { bridge._SherpawSetWebGpuEnabled(0) }
+    }
     return {
-      /** Triggering workflow: streaming drain -> Asyncify C API -> runAsr -> native decoding resumes. */
-      async decode(recognizer, stream) {
-        bridge.asrError = undefined
-        bridge._SherpawSetWebGpuEnabled(1)
+      decode: (recognizer, stream) => runDecode('SherpaOnnxDecodeOnlineStream', [recognizer.handle, stream.handle!]),
+      /** One encoder run takes the chunks of all streams as one batch, so the bridge cost is paid once. */
+      async decodeStreams(recognizer, streams) {
+        const ptr = bridge._malloc(4 * streams.length)
         try {
-          await bridge.ccall('SherpaOnnxDecodeOnlineStream', null, ['number', 'number'], [recognizer.handle, stream.handle!], { async: true })
-          if (bridge.asrError)
-            throw new Error(bridge.asrError)
+          streams.forEach((stream, i) => bridge.setValue(ptr + 4 * i, stream.handle!, 'i8*'))
+          await runDecode('SherpaOnnxDecodeMultipleOnlineStreams', [recognizer.handle, ptr, streams.length])
         }
-        finally { bridge._SherpawSetWebGpuEnabled(0) }
+        finally { bridge._free(ptr) }
       },
       dispose,
     }

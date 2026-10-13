@@ -77,6 +77,24 @@ function processSamples(recognizer: OnlineRecognizer, samples: Float32Array) {
 }
 ```
 
+### Decode several streams in one batch
+
+Streams of one recognizer can share each model call. `decodeReadyStreams` decodes the ready streams as one batch, and repeats until no stream is ready. Pass a WebGPU backend as the third argument to run the batches on the GPU.
+
+```ts
+import type { OnlineRecognizer, OnlineStream } from '@sherpaw/asr'
+
+import { decodeReadyStreams } from '@sherpaw/asr'
+
+async function processCopies(recognizer: OnlineRecognizer, streams: OnlineStream[], copies: Float32Array[]) {
+  streams.forEach((stream, index) => stream.acceptWaveform(16000, copies[index]))
+  await decodeReadyStreams(recognizer, streams)
+  return streams.map(stream => recognizer.getResult(stream).text)
+}
+```
+
+A batch gives the same result as one stream alone only when the model does not quantize activations per batch. INT8 models that use `DynamicQuantizeLinear` compute one scale for the whole batch, so each stream's result depends on the other streams. FP32 models give the same result.
+
 ## License
 
 ```

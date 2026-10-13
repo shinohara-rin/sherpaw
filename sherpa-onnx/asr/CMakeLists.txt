@@ -7,6 +7,7 @@ set(exported_functions
   # Online ASR
   SherpaOnnxCreateOnlineRecognizer
   SherpaOnnxCreateOnlineStream
+  SherpaOnnxDecodeMultipleOnlineStreams
   SherpaOnnxDecodeOnlineStream
   SherpaOnnxDestroyOnlineRecognizer
   SherpaOnnxDestroyOnlineRecognizerResult

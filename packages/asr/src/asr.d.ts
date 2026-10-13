@@ -266,6 +266,11 @@ export class OnlineRecognizer {
   createStream(): OnlineStream
   isReady(stream: OnlineStream): boolean
   decode(stream: OnlineStream): void
+  /**
+   * Decodes the next chunk of every stream in one model call. Every stream must be ready.
+   * Use `decodeReadyStreams` to decode only the ready streams until none is left.
+   */
+  decodeStreams(streams: readonly OnlineStream[]): void
   isEndpoint(stream: OnlineStream): boolean
   reset(stream: OnlineStream): void
   getResult(stream: OnlineStream): any

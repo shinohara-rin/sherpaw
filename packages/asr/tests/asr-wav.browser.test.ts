@@ -1,7 +1,7 @@
 import { loadVirtualData } from '@sherpaw/preloader'
 import { expect, it } from 'vitest'
 
-import { createOnlineRecognizer, initASRModule } from '../src'
+import { createOnlineRecognizer, decodeReadyStreams, initASRModule } from '../src'
 import { decodeWavPcm16, encodeWavPcm16 } from './helpers/wav'
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -38,6 +38,7 @@ it('transcribes wav samples with the browser asr pipeline', async () => {
   }
   expect((asrModule as any)._SherpaOnnxCreateOfflineRecognizer).toBeTypeOf('function')
   expect((asrModule as any)._SherpaOnnxOnlineStreamGetOption).toBeTypeOf('function')
+  expect((asrModule as any)._SherpaOnnxDecodeMultipleOnlineStreams).toBeTypeOf('function')
   expect((asrModule as any)._SherpaOnnxOfflineStreamGetOption).toBeTypeOf('function')
 
   const [encoder, decoder, tokens] = await Promise.all([
@@ -104,4 +105,14 @@ it('transcribes wav samples with the browser asr pipeline', async () => {
   const result = recognizer.getResult(stream)
   const text = String(result?.text ?? '').trim()
   expect(text.length).toBeGreaterThan(0)
+
+  // Two streams decoded as one batch give the same text as one stream alone.
+  const pair = [recognizer.createStream(), recognizer.createStream()]
+  for (const copy of pair) {
+    copy.setOption('is_final', '1')
+    copy.acceptWaveform(wavData.sampleRate, wavData.samples)
+    copy.inputFinished()
+  }
+  await decodeReadyStreams(recognizer, pair)
+  expect(pair.map(copy => String(recognizer.getResult(copy)?.text ?? '').trim())).toEqual([text, text])
 }, 120000)
