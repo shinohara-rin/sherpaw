@@ -1,7 +1,7 @@
-import type { ASRModule, OnlineRecognizer, OnlineRecognizerConfig, OnlineRecognizerType, OnlineStream } from '@sherpaw/asr'
+import type { ASRModule, OnlineRecognizer, OnlineRecognizerConfig, OnlineRecognizerType, OnlineStream, TokenResult } from '@sherpaw/asr'
 
 import { createContext } from '@moeru/eventa'
-import { createOnlineRecognizer } from '@sherpaw/asr'
+import { createOnlineRecognizer, timedTokens } from '@sherpaw/asr'
 
 import type {
   FinishResult,
@@ -114,7 +114,7 @@ export class StreamingTranscriptionSession {
     this.eventContext.off(streamTranscriptionEvent)
   }
 
-  private emitProgress(text: string, _rawResult: unknown): void {
+  private emitProgress(text: string, result: TokenResult): void {
     if (!this.started) {
       this.started = true
       this.eventContext.emit(streamTranscriptionEvent, { type: 'transcription.started' })
@@ -124,7 +124,7 @@ export class StreamingTranscriptionSession {
       return
     }
 
-    this.eventContext.emit(streamTranscriptionEvent, { type: 'transcription.partial', index: this.sentenceIndex, text })
+    this.eventContext.emit(streamTranscriptionEvent, { type: 'transcription.partial', index: this.sentenceIndex, text, tokens: timedTokens(result) })
     this.currentText = text
   }
 }

@@ -4,6 +4,7 @@ import type { OnlineRecognizer, OnlineRecognizerConfig, OnlineRecognizerType, On
 import type { TimedToken } from './tokens'
 
 import { createOnlineRecognizer, OnlineRecognizerTypes } from './asr'
+import { timedTokens } from './tokens'
 
 /** Optional execution backend. Ownership transfers to createStreamingRecognizer, including on initialization failure. */
 export interface StreamingBackend {
@@ -26,12 +27,6 @@ export interface StreamingRecognizer {
    */
   received: () => number
   dispose: () => Promise<void>
-}
-
-/** Tokens of one result with times from the first accepted sample. Results without timestamps give none. */
-function timedTokens(result: { tokens?: string[], timestamps?: number[], start_time?: number }): TimedToken[] {
-  const { tokens = [], timestamps = [], start_time: start = 0 } = result
-  return timestamps.length === tokens.length ? tokens.map((text, i) => ({ text, time: start + timestamps[i]! })) : []
 }
 
 /**
