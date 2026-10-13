@@ -2131,6 +2131,18 @@ class OnlineRecognizer {
     this.Module._SherpaOnnxDecodeOnlineStream(this.handle, stream.handle)
   }
 
+  // One model call decodes the next chunk of every stream. Every stream must be ready.
+  decodeStreams(streams) {
+    const ptr = this.Module._malloc(4 * streams.length)
+    try {
+      streams.forEach((stream, i) => this.Module.setValue(ptr + 4 * i, stream.handle, 'i8*'))
+      this.Module._SherpaOnnxDecodeMultipleOnlineStreams(this.handle, ptr, streams.length)
+    }
+    finally {
+      this.Module._free(ptr)
+    }
+  }
+
   isEndpoint(stream) {
     return this.Module._SherpaOnnxOnlineStreamIsEndpoint(
       this.handle,

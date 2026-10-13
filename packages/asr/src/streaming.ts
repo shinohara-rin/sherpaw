@@ -9,7 +9,30 @@ import { timedTokens } from './tokens'
 /** Optional execution backend. Ownership transfers to createStreamingRecognizer, including on initialization failure. */
 export interface StreamingBackend {
   decode: (recognizer: OnlineRecognizer, stream: OnlineStream) => Promise<void>
+  /** Decodes the next chunk of every stream in one model call. Every stream must be ready. */
+  decodeStreams: (recognizer: OnlineRecognizer, streams: readonly OnlineStream[]) => Promise<void>
   dispose: () => Promise<void>
+}
+
+/**
+ * Decodes the ready streams of one recognizer until none is ready.
+ * Each round runs the model once for all ready streams, so the streams share each model call.
+ * Endpoints and resets stay with the caller.
+ */
+export async function decodeReadyStreams(
+  recognizer: OnlineRecognizer,
+  streams: readonly OnlineStream[],
+  backend?: StreamingBackend,
+): Promise<void> {
+  for (;;) {
+    const ready = streams.filter(stream => recognizer.isReady(stream))
+    if (ready.length === 0)
+      return
+    if (backend)
+      await backend.decodeStreams(recognizer, ready)
+    else
+      recognizer.decodeStreams(ready)
+  }
 }
 
 export interface StreamingRecognizer {

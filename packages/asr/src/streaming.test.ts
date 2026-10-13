@@ -2,8 +2,10 @@ import type { WebAssemblyModule } from '@sherpaw/shared'
 
 import { beforeEach, expect, it, vi } from 'vitest'
 
+import type { OnlineRecognizer, OnlineStream } from './asr'
+
 import { createOnlineRecognizer, OnlineRecognizerTypes } from './asr'
-import { createStreamingRecognizer } from './streaming'
+import { createStreamingRecognizer, decodeReadyStreams } from './streaming'
 
 vi.mock('./asr', async original => ({
   ...await original<typeof import('./asr')>(),
@@ -53,6 +55,7 @@ it('waits for suspended inference before finishing or freeing the native stream'
       native.decode()
       setText('final words')
     }),
+    decodeStreams: vi.fn(async () => {}),
     dispose: vi.fn(async () => {}),
   }
   const session = await createStreamingRecognizer(module, { type: OnlineRecognizerTypes.Paraformer }, backend)
@@ -98,6 +101,7 @@ it('rejects a failed decode without publishing a result and still releases resou
   const getResult = vi.spyOn(native, 'getResult')
   const backend = {
     decode: vi.fn(async () => { throw new Error('GPU failed') }),
+    decodeStreams: vi.fn(async () => {}),
     dispose: vi.fn(async () => {}),
   }
   const session = await createStreamingRecognizer(module, undefined, backend)
@@ -113,7 +117,7 @@ it('rejects a failed decode without publishing a result and still releases resou
 it('cleans up the recognizer and backend when native stream creation fails', async () => {
   const { native, stream } = nativeFixture()
   stream.handle = 0
-  const backend = { decode: vi.fn(), dispose: vi.fn(async () => {}) }
+  const backend = { decode: vi.fn(), decodeStreams: vi.fn(), dispose: vi.fn(async () => {}) }
   await expect(createStreamingRecognizer(module, undefined, backend)).rejects.toThrow('Failed to create the online stream')
   expect(native.free).toHaveBeenCalledOnce()
   expect(backend.dispose).toHaveBeenCalledOnce()
@@ -133,4 +137,37 @@ it('keeps token times across endpoints and reports none without timestamps', asy
   await session.accept(new Float32Array(320))
   expect(session.tokens()).toEqual([{ text: ' 你', time: 0.4 }, { text: ' 好', time: 0.6 }])
   await session.dispose()
+})
+
+/** Streams with a number of ready chunks each. A decode takes one chunk from each stream it gets. */
+function batchFixture(chunks: number[]) {
+  const left = [...chunks]
+  const streams = chunks.map((_, index) => ({ handle: index + 1 }) as unknown as OnlineStream)
+  const take = (ready: readonly OnlineStream[]) => {
+    for (const stream of ready)
+      left[stream.handle! - 1]--
+  }
+  const recognizer = {
+    isReady: (stream: OnlineStream) => left[stream.handle! - 1] > 0,
+    decodeStreams: vi.fn(take),
+  }
+  return { recognizer, streams, take, batches: (calls: unknown[][]) => calls.map(call => (call.at(-1) as OnlineStream[]).map(stream => stream.handle)) }
+}
+
+it('decodes only the ready streams, one batch per round, until none is ready', async () => {
+  const { recognizer, streams, batches } = batchFixture([2, 1, 0])
+  await decodeReadyStreams(recognizer as unknown as OnlineRecognizer, streams)
+  expect(batches(recognizer.decodeStreams.mock.calls)).toEqual([[1, 2], [1]])
+})
+
+it('decodes the batches through the backend when one is given', async () => {
+  const { recognizer, streams, take, batches } = batchFixture([1, 2])
+  const backend = {
+    decode: vi.fn(),
+    decodeStreams: vi.fn(async (_recognizer: OnlineRecognizer, ready: readonly OnlineStream[]) => take(ready)),
+    dispose: vi.fn(async () => {}),
+  }
+  await decodeReadyStreams(recognizer as unknown as OnlineRecognizer, streams, backend)
+  expect(batches(backend.decodeStreams.mock.calls)).toEqual([[1, 2], [2]])
+  expect(recognizer.decodeStreams).not.toHaveBeenCalled()
 })
