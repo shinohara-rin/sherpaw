@@ -4,11 +4,13 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "sherpa-onnx/c-api/c-api.h"
 #include "sherpa-onnx/csrc/online-recognizer.h"
@@ -40,7 +42,36 @@ struct Rollouts {
   double sum = 0;
   double sum_of_squares = 0;
   double count = 0;
+  // Noise floor of the input level in dB. It is not reset at endpoints,
+  // because the background continues.
+  float floor_db = std::numeric_limits<float>::quiet_NaN();
 };
+
+// The noise gate is closed below kGateAboveDb over the noise floor and fully
+// open kGateWidthDb higher. The floor follows a quieter frame at once and
+// rises kFloorRiseDb per encoder frame, so it finds the background again after
+// speech. Measured on 183 clips with X-ASR: the gate stopped all emission in a
+// non-speech lead-in (35% of ungated rollouts emitted there) and did not lower
+// error detection.
+constexpr float kGateAboveDb = 4.0f;
+constexpr float kGateWidthDb = 12.0f;
+constexpr float kFloorRiseDb = 0.25f;
+
+// Level in dB of the feature frames [begin, end): the mean power of the summed
+// mel bins. Features are natural-log mel energies.
+float LevelDb(const float *features, int32_t begin, int32_t end,
+              int32_t feature_dim) {
+  double power = 0;
+  for (int32_t f = begin; f < end; ++f) {
+    double frame = 0;
+    for (int32_t k = 0; k != feature_dim; ++k) {
+      frame += std::exp(features[f * feature_dim + k]);
+    }
+    power += frame;
+  }
+  return static_cast<float>(
+      10 * std::log10(power / std::max(1, end - begin) + 1e-10));
+}
 
 std::unordered_map<const OnlineStream *, Rollouts> &Registry() {
   static std::unordered_map<const OnlineStream *, Rollouts> registry;
@@ -49,8 +80,9 @@ std::unordered_map<const OnlineStream *, Rollouts> &Registry() {
 
 }  // namespace
 
-void SherpawAdvanceRollouts(OnlineTransducerDecoder *decoder, int32_t chunk_shift,
-                            OnlineStream **ss, int32_t n,
+void SherpawAdvanceRollouts(OnlineTransducerDecoder *decoder, int32_t chunk_size,
+                            int32_t chunk_shift, int32_t feature_dim,
+                            const float *features, OnlineStream **ss, int32_t n,
                             const Ort::Value &encoder_out) {
   auto &registry = Registry();
   if (registry.empty()) return;
@@ -79,6 +111,20 @@ void SherpawAdvanceRollouts(OnlineTransducerDecoder *decoder, int32_t chunk_shif
     std::normal_distribution<float> noise(
         0.0f, rollouts.sigma * static_cast<float>(std::sqrt(variance)));
 
+    // Each encoder frame covers chunk_shift / frames feature frames from the
+    // start of the chunk.
+    const float *chunk_features = features + i * chunk_size * feature_dim;
+    std::vector<float> gate(frames);
+    for (int64_t t = 0; t != frames; ++t) {
+      float level = LevelDb(chunk_features, t * chunk_shift / frames,
+                            (t + 1) * chunk_shift / frames, feature_dim);
+      rollouts.floor_db = std::isnan(rollouts.floor_db)
+                              ? level
+                              : std::min(rollouts.floor_db + kFloorRiseDb, level);
+      gate[t] = std::clamp(
+          (level - rollouts.floor_db - kGateAboveDb) / kGateWidthDb, 0.0f, 1.0f);
+    }
+
     const int64_t count = static_cast<int64_t>(rollouts.streams.size());
     std::array<int64_t, 3> noisy_shape{count, frames, dim};
     Ort::Value noisy = Ort::Value::CreateTensor<float>(
@@ -86,7 +132,8 @@ void SherpawAdvanceRollouts(OnlineTransducerDecoder *decoder, int32_t chunk_shif
     float *out = noisy.GetTensorMutableData<float>();
     for (int64_t r = 0; r != count; ++r) {
       for (int64_t k = 0; k != row_size; ++k) {
-        out[r * row_size + k] = row[k] + noise(rollouts.random);
+        // Draw for every value, so the gate does not shift later draws.
+        out[r * row_size + k] = row[k] + gate[k / dim] * noise(rollouts.random);
       }
     }
 

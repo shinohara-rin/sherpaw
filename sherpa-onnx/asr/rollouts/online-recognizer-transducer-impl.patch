@@ -8,15 +8,16 @@
  
  namespace sherpa_onnx {
  
-@@ -342,6 +343,7 @@
+@@ -342,6 +343,8 @@
  
      auto pair = model_->RunEncoder(std::move(x), std::move(states),
                                     std::move(processed_frames));
-+    SherpawAdvanceRollouts(decoder_.get(), chunk_shift, ss, n, pair.first);
++    SherpawAdvanceRollouts(decoder_.get(), chunk_size, chunk_shift, feature_dim,
++                           features_vec.data(), ss, n, pair.first);
  
      if (has_context_graph) {
        decoder_->Decode(std::move(pair.first), ss, &results);
-@@ -437,6 +439,8 @@
+@@ -437,6 +440,8 @@
      // Note: We only update counters. The underlying audio samples
      // are not discarded.
      s->Reset();

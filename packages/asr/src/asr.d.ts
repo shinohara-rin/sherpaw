@@ -278,8 +278,10 @@ export class OnlineRecognizer {
   /**
    * Attaches encoder-output noise rollouts to a transducer stream before its first decode.
    * Each decode of the stream also decodes every rollout from the same encoder output, with
-   * Gaussian noise of `sigma` times the standard deviation of that output added. The encoder
-   * runs once, so a rollout costs one decoder and joiner pass. Replaces earlier rollouts.
+   * Gaussian noise of `sigma` times the standard deviation of that output added. The noise
+   * fades out in frames near the noise floor of the input, so rollouts do not invent speech in
+   * silence. The encoder runs once, so a rollout costs one decoder and joiner pass. Replaces
+   * earlier rollouts.
    * Freeing the stream frees its rollouts.
    */
   attachRollouts(stream: OnlineStream, options: RolloutOptions): void
