@@ -1,7 +1,7 @@
 {
   "name": "@sherpaw/kws",
   "type": "module",
-  "version": "0.3.1-fork.7fa2661",
+  "version": "0.3.1-fork.2ff318d",
   "description": "Streaming keyword spotting with replaceable token vocabularies and standalone Sherpa-ONNX WASM",
   "author": "Makito <i@maki.to>",
   "license": "Apache-2.0",
@@ -29,7 +29,7 @@
     "@moeru/eventa": "1.0.1"
   },
   "peerDependencies": {
-    "@sherpaw/preloader": "0.3.1-fork.7fa2661",
-    "@sherpaw/shared": "0.3.1-fork.7fa2661"
+    "@sherpaw/preloader": "0.3.1-fork.2ff318d",
+    "@sherpaw/shared": "0.3.1-fork.2ff318d"
   }
 }

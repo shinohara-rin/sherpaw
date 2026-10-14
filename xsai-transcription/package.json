@@ -1,7 +1,7 @@
 {
   "name": "@sherpaw/xsai-transcription",
   "type": "module",
-  "version": "0.3.1-fork.7fa2661",
+  "version": "0.3.1-fork.2ff318d",
   "description": "Streaming transcription wrapper for Sherpa-ONNX WASM with xsai-style ergonomics",
   "author": "Makito <i@maki.to>",
   "license": "Apache-2.0",
@@ -34,8 +34,8 @@
     "@moeru/std": "0.1.0-beta.17"
   },
   "peerDependencies": {
-    "@sherpaw/asr": "0.3.1-fork.7fa2661",
-    "@sherpaw/preloader": "0.3.1-fork.7fa2661",
-    "@sherpaw/shared": "0.3.1-fork.7fa2661"
+    "@sherpaw/asr": "0.3.1-fork.2ff318d",
+    "@sherpaw/preloader": "0.3.1-fork.2ff318d",
+    "@sherpaw/shared": "0.3.1-fork.2ff318d"
   }
 }
