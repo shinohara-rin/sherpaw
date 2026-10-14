@@ -1,0 +1,27 @@
+{
+  "name": "@sherpaw/shared",
+  "type": "module",
+  "version": "0.3.1-fork.7fa2661",
+  "description": "",
+  "author": "Makito <i@maki.to>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sumimakito/sherpaw.git",
+    "directory": "packages/shared"
+  },
+  "keywords": [],
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@types/emscripten": "^1.41.5"
+  }
+}
