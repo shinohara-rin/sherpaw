@@ -116,3 +116,88 @@ it('transcribes wav samples with the browser asr pipeline', async () => {
   await decodeReadyStreams(recognizer, pair)
   expect(pair.map(copy => String(recognizer.getResult(copy)?.text ?? '').trim())).toEqual([text, text])
 }, 120000)
+
+it('decodes encoder-output noise rollouts on the leader clock', async () => {
+  const wav = await fetchBytes(new URL('./fixtures/en-0.wav', import.meta.url))
+  const { sampleRate, samples } = decodeWavPcm16(wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer)
+
+  const asrModule = await initASRModule()
+  const [encoder, decoder, joiner, tokens] = await Promise.all(['encoder.onnx', 'decoder.onnx', 'joiner.onnx', 'tokens.txt']
+    .map(name => fetchBytes(new URL(`./model-transducer/${name}`, import.meta.url))))
+  const filenames = loadVirtualData({
+    module: asrModule,
+    virtualData: { 'transducer-encoder.onnx': encoder, 'transducer-decoder.onnx': decoder, 'transducer-joiner.onnx': joiner, 'transducer-tokens.txt': tokens },
+    dependencyId: 'asr-transducer-model',
+  })
+  const modelConfig = {
+    transducer: {
+      encoder: filenames['transducer-encoder.onnx'],
+      decoder: filenames['transducer-decoder.onnx'],
+      joiner: filenames['transducer-joiner.onnx'],
+    },
+    tokens: filenames['transducer-tokens.txt'],
+    modelingUnit: '',
+    debug: 0,
+  }
+  const recognizer = createOnlineRecognizer(asrModule, { type: 0, modelConfig })
+
+  function decodeWithRollouts(options: { count: number, sigma: number, seed?: number }, input: Float32Array, target = recognizer) {
+    const stream = target.createStream()
+    target.attachRollouts(stream, options)
+    const segments: { leader: any, rollouts: any[] }[] = []
+    for (let start = 0; start < input.length; start += 1600) {
+      stream.acceptWaveform(sampleRate, input.subarray(start, start + 1600))
+      while (target.isReady(stream))
+        target.decode(stream)
+      if (target.isEndpoint(stream)) {
+        segments.push({ leader: target.getResult(stream), rollouts: target.getRolloutResults(stream) })
+        target.reset(stream)
+      }
+    }
+    stream.acceptWaveform(sampleRate, new Float32Array(Math.round(sampleRate * 0.66)))
+    stream.inputFinished()
+    while (target.isReady(stream))
+      target.decode(stream)
+    segments.push({ leader: target.getResult(stream), rollouts: target.getRolloutResults(stream) })
+    stream.free()
+    return segments
+  }
+
+  // With almost no noise, every rollout is the leader, also across an endpoint reset.
+  const twice = new Float32Array(samples.length * 2 + sampleRate * 3)
+  twice.set(samples, 0)
+  twice.set(samples, samples.length + sampleRate * 3)
+  const quiet = decodeWithRollouts({ count: 2, sigma: 1e-7 }, twice)
+  expect(quiet.length).toBeGreaterThan(1)
+  for (const { leader, rollouts } of quiet) {
+    expect(rollouts).toHaveLength(2)
+    for (const rollout of rollouts) {
+      expect(rollout.tokens).toEqual(leader.tokens)
+      expect(rollout.timestamps).toEqual(leader.timestamps)
+      expect(rollout.start_time).toBe(leader.start_time)
+    }
+  }
+
+  // Noise changes rollouts, the seed repeats them, and the leader does not change.
+  const noisy = decodeWithRollouts({ count: 4, sigma: 1, seed: 5 }, samples)
+  expect(noisy[0].leader.text).toBe(decodeWithRollouts({ count: 1, sigma: 1e-7 }, samples)[0].leader.text)
+  expect(noisy[0].rollouts.some(rollout => rollout.text !== noisy[0].leader.text)).toBe(true)
+  expect(decodeWithRollouts({ count: 4, sigma: 1, seed: 5 }, samples)[0].rollouts.map(rollout => rollout.text))
+    .toEqual(noisy[0].rollouts.map(rollout => rollout.text))
+
+  // Rollouts decode with the hotwords of the leader. The hotword changes the leader, and the rollouts follow it.
+  const hotwords = 'O TH EL S'
+  const biased = createOnlineRecognizer(asrModule, {
+    type: 0,
+    modelConfig: { ...modelConfig, modelingUnit: 'cjkchar' },
+    decodingMethod: 'modified_beam_search',
+    hotwordsBuf: hotwords,
+    hotwordsBufSize: new TextEncoder().encode(hotwords).length,
+    hotwordsScore: 8,
+  })
+  const [hinted] = decodeWithRollouts({ count: 2, sigma: 1e-7 }, samples, biased)
+  expect(hinted.leader.text).not.toBe(noisy[0].leader.text)
+  for (const rollout of hinted.rollouts)
+    expect(rollout.tokens).toEqual(hinted.leader.tokens)
+  biased.free()
+}, 120000)
