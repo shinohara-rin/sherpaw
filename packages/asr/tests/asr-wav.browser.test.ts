@@ -129,38 +129,36 @@ it('decodes encoder-output noise rollouts on the leader clock', async () => {
     virtualData: { 'transducer-encoder.onnx': encoder, 'transducer-decoder.onnx': decoder, 'transducer-joiner.onnx': joiner, 'transducer-tokens.txt': tokens },
     dependencyId: 'asr-transducer-model',
   })
-  const recognizer = createOnlineRecognizer(asrModule, {
-    type: 0,
-    modelConfig: {
-      transducer: {
-        encoder: filenames['transducer-encoder.onnx'],
-        decoder: filenames['transducer-decoder.onnx'],
-        joiner: filenames['transducer-joiner.onnx'],
-      },
-      tokens: filenames['transducer-tokens.txt'],
-      modelingUnit: '',
-      debug: 0,
+  const modelConfig = {
+    transducer: {
+      encoder: filenames['transducer-encoder.onnx'],
+      decoder: filenames['transducer-decoder.onnx'],
+      joiner: filenames['transducer-joiner.onnx'],
     },
-  })
+    tokens: filenames['transducer-tokens.txt'],
+    modelingUnit: '',
+    debug: 0,
+  }
+  const recognizer = createOnlineRecognizer(asrModule, { type: 0, modelConfig })
 
-  function decodeWithRollouts(options: { count: number, sigma: number, seed?: number }, input: Float32Array) {
-    const stream = recognizer.createStream()
-    recognizer.attachRollouts(stream, options)
+  function decodeWithRollouts(options: { count: number, sigma: number, seed?: number }, input: Float32Array, target = recognizer) {
+    const stream = target.createStream()
+    target.attachRollouts(stream, options)
     const segments: { leader: any, rollouts: any[] }[] = []
     for (let start = 0; start < input.length; start += 1600) {
       stream.acceptWaveform(sampleRate, input.subarray(start, start + 1600))
-      while (recognizer.isReady(stream))
-        recognizer.decode(stream)
-      if (recognizer.isEndpoint(stream)) {
-        segments.push({ leader: recognizer.getResult(stream), rollouts: recognizer.getRolloutResults(stream) })
-        recognizer.reset(stream)
+      while (target.isReady(stream))
+        target.decode(stream)
+      if (target.isEndpoint(stream)) {
+        segments.push({ leader: target.getResult(stream), rollouts: target.getRolloutResults(stream) })
+        target.reset(stream)
       }
     }
     stream.acceptWaveform(sampleRate, new Float32Array(Math.round(sampleRate * 0.66)))
     stream.inputFinished()
-    while (recognizer.isReady(stream))
-      recognizer.decode(stream)
-    segments.push({ leader: recognizer.getResult(stream), rollouts: recognizer.getRolloutResults(stream) })
+    while (target.isReady(stream))
+      target.decode(stream)
+    segments.push({ leader: target.getResult(stream), rollouts: target.getRolloutResults(stream) })
     stream.free()
     return segments
   }
@@ -186,4 +184,20 @@ it('decodes encoder-output noise rollouts on the leader clock', async () => {
   expect(noisy[0].rollouts.some(rollout => rollout.text !== noisy[0].leader.text)).toBe(true)
   expect(decodeWithRollouts({ count: 4, sigma: 1, seed: 5 }, samples)[0].rollouts.map(rollout => rollout.text))
     .toEqual(noisy[0].rollouts.map(rollout => rollout.text))
+
+  // Rollouts decode with the hotwords of the leader. The hotword changes the leader, and the rollouts follow it.
+  const hotwords = 'O TH EL S'
+  const biased = createOnlineRecognizer(asrModule, {
+    type: 0,
+    modelConfig: { ...modelConfig, modelingUnit: 'cjkchar' },
+    decodingMethod: 'modified_beam_search',
+    hotwordsBuf: hotwords,
+    hotwordsBufSize: new TextEncoder().encode(hotwords).length,
+    hotwordsScore: 8,
+  })
+  const [hinted] = decodeWithRollouts({ count: 2, sigma: 1e-7 }, samples, biased)
+  expect(hinted.leader.text).not.toBe(noisy[0].leader.text)
+  for (const rollout of hinted.rollouts)
+    expect(rollout.tokens).toEqual(hinted.leader.tokens)
+  biased.free()
 }, 120000)

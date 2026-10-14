@@ -97,7 +97,7 @@ A batch gives the same result as one stream alone only when the model does not q
 
 ### Measure recognizer uncertainty with rollouts
 
-A rollout decodes the same encoder output as its stream, with Gaussian noise added. The noise fades out in frames that are near the noise floor of the input. Without this gate, about a third of the rollouts emit tokens in silence or background noise, but the recognizer itself almost never does. Where the rollouts disagree with the stream, the recognizer is unsure. The encoder runs once for the stream and all its rollouts, so each rollout costs only a decoder and joiner pass. Rollouts need a transducer recognizer.
+A rollout decodes the same encoder output as its stream, with Gaussian noise added. The noise fades out in frames that are near the noise floor of the input. Without this gate, about a third of the rollouts emit tokens in silence or background noise, but the recognizer itself almost never does. When the input starts with speech, the gate opens after the first pauses, about a second later. Rollouts decode with the hotwords of their stream. Where the rollouts disagree with the stream, the recognizer is unsure. The encoder runs once for the stream and all its rollouts, so each rollout costs only a decoder and joiner pass. Rollouts need a transducer recognizer.
 
 ```ts
 import type { OnlineRecognizer } from '@sherpaw/asr'

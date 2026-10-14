@@ -38,7 +38,10 @@ struct Rollouts {
   float sigma;
   std::mt19937 random;
   // Running moments of every encoder value seen by the leader. The noise scale
-  // follows the encoder output of the whole utterance, not of one chunk.
+  // follows the encoder output of the whole stream, not of one chunk, and is
+  // not reset at endpoints. Measured on 183 clips with X-ASR: the scale changes
+  // little with the input level (quiet frames 0.95 of loud frames), but the
+  // first chunk alone gives 0.88 of the clip's scale.
   double sum = 0;
   double sum_of_squares = 0;
   double count = 0;
@@ -52,7 +55,9 @@ struct Rollouts {
 // rises kFloorRiseDb per encoder frame, so it finds the background again after
 // speech. Measured on 183 clips with X-ASR: the gate stopped all emission in a
 // non-speech lead-in (35% of ungated rollouts emitted there) and did not lower
-// error detection.
+// error detection. When the input starts with speech, the floor starts on
+// speech and the gate opens as the speaker pauses (median 1.2 s). On the same
+// clips cut at the speech onset, error detection did not drop either.
 constexpr float kGateAboveDb = 4.0f;
 constexpr float kGateWidthDb = 12.0f;
 constexpr float kFloorRiseDb = 0.25f;
@@ -138,11 +143,20 @@ void SherpawAdvanceRollouts(OnlineTransducerDecoder *decoder, int32_t chunk_size
     }
 
     std::vector<OnlineTransducerDecoderResult> results;
+    std::vector<OnlineStream *> streams;
     results.reserve(count);
+    streams.reserve(count);
     for (auto &stream : rollouts.streams) {
       results.push_back(std::move(stream->GetResult()));
+      streams.push_back(stream.get());
     }
-    decoder->Decode(std::move(noisy), &results);
+    // Same choice as the recognizer makes for the leader: a stream with
+    // hotwords needs the overload that scores its context graph.
+    if (ss[i]->GetContextGraph()) {
+      decoder->Decode(std::move(noisy), streams.data(), &results);
+    } else {
+      decoder->Decode(std::move(noisy), &results);
+    }
     for (int64_t r = 0; r != count; ++r) {
       auto &stream = rollouts.streams[r];
       stream->SetResult(results[r]);
@@ -177,7 +191,15 @@ SHERPA_ONNX_API int32_t SherpawAttachRollouts(
   sherpa_onnx::Rollouts rollouts{recognizer->impl.get(), {}, sigma,
                                  std::mt19937(seed)};
   for (int32_t i = 0; i != count; ++i) {
-    rollouts.streams.push_back(recognizer->impl->CreateStream());
+    // Rollouts share the hotwords of the leader, which can differ from the
+    // recognizer's own hotwords. Rollouts take no audio, so the default
+    // feature config is enough. Reset sets the empty result and the root
+    // context state, as CreateStream does.
+    auto rollout = std::make_unique<sherpa_onnx::OnlineStream>(
+        sherpa_onnx::FeatureExtractorConfig{},
+        stream->impl->GetContextGraph());
+    recognizer->impl->Reset(rollout.get());
+    rollouts.streams.push_back(std::move(rollout));
   }
   sherpa_onnx::Registry()[stream->impl.get()] = std::move(rollouts);
   return 0;
